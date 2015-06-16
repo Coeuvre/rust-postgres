@@ -193,8 +193,8 @@ impl error::Error for DbError {
 /// Reasons a new Postgres connection could fail.
 #[derive(Debug)]
 pub enum ConnectError {
-    /// The provided URL could not be parsed.
-    InvalidUrl(String),
+    /// An error creating `ConnectParams`.
+    BadConnectParams(Box<error::Error+Sync+Send>),
     /// The URL was missing a user.
     MissingUser,
     /// An error from the Postgres server itself.
@@ -214,19 +214,15 @@ pub enum ConnectError {
 
 impl fmt::Display for ConnectError {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        try!(fmt.write_str(error::Error::description(self)));
-        match *self {
-            ConnectError::InvalidUrl(ref msg) => write!(fmt, ": {}", msg),
-            _ => Ok(())
-        }
+        fmt.write_str(error::Error::description(self))
     }
 }
 
 impl error::Error for ConnectError {
     fn description(&self) -> &str {
         match *self {
-            ConnectError::InvalidUrl(_) => "Invalid URL",
-            ConnectError::MissingUser => "User missing in URL",
+            ConnectError::BadConnectParams(_) => "Error creating `ConnectParams`",
+            ConnectError::MissingUser => "User missing in `ConnectParams`",
             ConnectError::DbError(_) => "An error from the Postgres server itself",
             ConnectError::MissingPassword => "The server requested a password but none was provided",
             ConnectError::UnsupportedAuthentication => {
@@ -240,6 +236,7 @@ impl error::Error for ConnectError {
 
     fn cause(&self) -> Option<&error::Error> {
         match *self {
+            ConnectError::BadConnectParams(ref err) => Some(&**err),
             ConnectError::DbError(ref err) => Some(err),
             ConnectError::SslError(ref err) => Some(&**err),
             ConnectError::IoError(ref err) => Some(err),
