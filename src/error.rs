@@ -217,6 +217,7 @@ impl fmt::Display for ConnectError {
         try!(fmt.write_str(error::Error::description(self)));
         match *self {
             ConnectError::InvalidUrl(ref msg) => write!(fmt, ": {}", msg),
+            ConnectError::DbError(ref e) => write!(fmt, ": {}", e),
             _ => Ok(())
         }
     }
@@ -301,6 +302,7 @@ impl fmt::Display for Error {
         try!(fmt.write_str(error::Error::description(self)));
         match *self {
             Error::WrongType(ref ty) => write!(fmt, ": saw type {:?}", ty),
+            Error::DbError(ref e) => write!(fmt, ": {}", e),
             _ => Ok(()),
         }
     }
