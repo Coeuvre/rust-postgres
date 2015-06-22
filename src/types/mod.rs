@@ -643,7 +643,7 @@ impl FromSql for String {
     fn accepts(ty: &Type) -> bool {
         match *ty {
             Type::Varchar | Type::Text | Type::Bpchar | Type::Name => true,
-            Type::Other(ref u) if u.name() == "citext" => true,
+            Type::Other(_) => true,
             _ => false,
         }
     }
@@ -875,7 +875,7 @@ impl<'a> ToSql for &'a str {
     fn accepts(ty: &Type) -> bool {
         match *ty {
             Type::Varchar | Type::Text | Type::Bpchar | Type::Name => true,
-            Type::Other(ref u) if u.name() == "citext" => true,
+            Type::Other(_) => true,
             _ => false,
         }
     }
