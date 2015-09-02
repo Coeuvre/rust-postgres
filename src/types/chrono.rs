@@ -3,7 +3,7 @@ extern crate chrono;
 use std::error;
 use std::io::prelude::*;
 use byteorder::{ReadBytesExt, WriteBytesExt, BigEndian};
-use self::chrono::{Duration, NaiveDate, NaiveTime, NaiveDateTime, DateTime, UTC};
+use self::chrono::{Duration, NaiveDate, NaiveTime, NaiveDateTime, DateTime, UTC, Local, FixedOffset};
 
 use Result;
 use error::Error;
@@ -24,8 +24,14 @@ impl FromSql for NaiveDateTime {
 
 impl ToSql for NaiveDateTime {
     fn to_sql<W: Write+?Sized>(&self, _: &Type, mut w: &mut W, _: &SessionInfo) -> Result<IsNull> {
-        let t = (*self - base()).num_microseconds().unwrap();
-        try!(w.write_i64::<BigEndian>(t));
+        let time = match (*self - base()).num_microseconds() {
+            Some(time) => time,
+            None => {
+                let err: Box<error::Error+Sync+Send> = "value too large to transmit".into();
+                return Err(Error::Conversion(err));
+            }
+        };
+        try!(w.write_i64::<BigEndian>(time));
         Ok(IsNull::No)
     }
 
@@ -46,6 +52,45 @@ impl ToSql for DateTime<UTC> {
     fn to_sql<W: Write+?Sized>(&self, type_: &Type, mut w: &mut W, info: &SessionInfo)
                                -> Result<IsNull> {
         self.naive_utc().to_sql(type_, w, info)
+    }
+
+    accepts!(Type::TimestampTZ);
+    to_sql_checked!();
+}
+
+impl FromSql for DateTime<Local> {
+    fn from_sql<R: Read>(type_: &Type, raw: &mut R, info: &SessionInfo) -> Result<DateTime<Local>> {
+        let utc = try!(DateTime::<UTC>::from_sql(type_, raw, info));
+        Ok(utc.with_timezone(&Local))
+    }
+
+    accepts!(Type::TimestampTZ);
+}
+
+impl ToSql for DateTime<Local> {
+    fn to_sql<W: Write+?Sized>(&self, type_: &Type, mut w: &mut W, info: &SessionInfo)
+                               -> Result<IsNull> {
+        self.with_timezone(&UTC).to_sql(type_, w, info)
+    }
+
+    accepts!(Type::TimestampTZ);
+    to_sql_checked!();
+}
+
+impl FromSql for DateTime<FixedOffset> {
+    fn from_sql<R: Read>(type_: &Type, raw: &mut R, info: &SessionInfo)
+                         -> Result<DateTime<FixedOffset>> {
+        let utc = try!(DateTime::<UTC>::from_sql(type_, raw, info));
+        Ok(utc.with_timezone(&FixedOffset::east(0)))
+    }
+
+    accepts!(Type::TimestampTZ);
+}
+
+impl ToSql for DateTime<FixedOffset> {
+    fn to_sql<W: Write+?Sized>(&self, type_: &Type, mut w: &mut W, info: &SessionInfo)
+                               -> Result<IsNull> {
+        self.with_timezone(&UTC).to_sql(type_, w, info)
     }
 
     accepts!(Type::TimestampTZ);
@@ -89,7 +134,14 @@ impl FromSql for NaiveTime {
 impl ToSql for NaiveTime {
     fn to_sql<W: Write+?Sized>(&self, _: &Type, mut w: &mut W, _: &SessionInfo) -> Result<IsNull> {
         let delta = *self - NaiveTime::from_hms(0, 0, 0);
-        try!(w.write_i64::<BigEndian>(delta.num_microseconds().unwrap()));
+        let time = match delta.num_microseconds() {
+            Some(time) => time,
+            None => {
+                let err: Box<error::Error+Sync+Send> = "value too large to transmit".into();
+                return Err(Error::Conversion(err));
+            }
+        };
+        try!(w.write_i64::<BigEndian>(time));
         Ok(IsNull::No)
     }
 

@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::error;
 use std::fmt;
 use std::io::prelude::*;
+use std::io;
 use byteorder::{ReadBytesExt, WriteBytesExt, BigEndian};
 
 pub use self::slice::Slice;
@@ -75,6 +76,20 @@ impl<'a> SessionInfo<'a> {
     }
 }
 
+/// Like `Read` except that a `SessionInfo` object is provided as well.
+///
+/// All types that implement `Read` also implement this trait.
+pub trait ReadWithInfo {
+    /// Like `Read::read`.
+    fn read_with_info(&mut self, buf: &mut [u8], info: &SessionInfo) -> io::Result<usize>;
+}
+
+impl<R: Read> ReadWithInfo for R {
+    fn read_with_info(&mut self, buf: &mut [u8], _: &SessionInfo) -> io::Result<usize> {
+        self.read(buf)
+    }
+}
+
 /// A Postgres OID.
 pub type Oid = u32;
 
@@ -127,7 +142,6 @@ macro_rules! make_postgres_type {
                     _ => None
                 }
             }
-
         }
 
         impl Type {
@@ -550,16 +564,18 @@ impl error::Error for WasNull {
 /// name. For example, the `serde` feature enables the implementation for the
 /// `serde::json::Value` type.
 ///
-/// | Rust type                   | Postgres type(s)                    |
-/// |-----------------------------|-------------------------------------|
-/// | serialize::json::Json       | JSON, JSONB                         |
-/// | serde::json::Value          | JSON, JSONB                         |
-/// | time::Timespec              | TIMESTAMP, TIMESTAMP WITH TIME ZONE |
-/// | chrono::NaiveDateTime       | TIMESTAMP                           |
-/// | chrono::DateTime&lt;UTC&gt; | TIMESTAMP WITH TIME ZONE            |
-/// | chrono::NaiveDate           | DATE                                |
-/// | chrono::NaiveTime           | TIME                                |
-/// | uuid::Uuid                  | UUID                                |
+/// | Rust type                           | Postgres type(s)                    |
+/// |-------------------------------------|-------------------------------------|
+/// | serialize::json::Json               | JSON, JSONB                         |
+/// | serde::json::Value                  | JSON, JSONB                         |
+/// | time::Timespec                      | TIMESTAMP, TIMESTAMP WITH TIME ZONE |
+/// | chrono::NaiveDateTime               | TIMESTAMP                           |
+/// | chrono::DateTime&lt;UTC&gt;         | TIMESTAMP WITH TIME ZONE            |
+/// | chrono::DateTime&lt;Local&gt;       | TIMESTAMP WITH TIME ZONE            |
+/// | chrono::DateTime&lt;FixedOffset&gt; | TIMESTAMP WITH TIME ZONE            |
+/// | chrono::NaiveDate                   | DATE                                |
+/// | chrono::NaiveTime                   | TIME                                |
+/// | uuid::Uuid                          | UUID                                |
 ///
 /// # Nullability
 ///
@@ -567,9 +583,9 @@ impl error::Error for WasNull {
 /// `Option<T>` where `T` implements `FromSql`. An `Option<T>` represents a
 /// nullable Postgres value.
 pub trait FromSql: Sized {
-    /// Creates a new value of this type from a `Read` of Postgres data.
+    /// Creates a new value of this type from a `Read`er of Postgres data.
     ///
-    /// If the value was `NULL`, the `Read` will be `None`.
+    /// If the value was `NULL`, the `Read`er will be `None`.
     ///
     /// The caller of this method is responsible for ensuring that this type
     /// is compatible with the Postgres `Type`.
@@ -755,16 +771,18 @@ pub enum IsNull {
 /// name. For example, the `serde` feature enables the implementation for the
 /// `serde::json::Value` type.
 ///
-/// | Rust type                   | Postgres type(s)                    |
-/// |-----------------------------|-------------------------------------|
-/// | serialize::json::Json       | JSON, JSONB                         |
-/// | serde::json::Value          | JSON, JSONB                         |
-/// | time::Timespec              | TIMESTAMP, TIMESTAMP WITH TIME ZONE |
-/// | chrono::NaiveDateTime       | TIMESTAMP                           |
-/// | chrono::DateTime&lt;UTC&gt; | TIMESTAMP WITH TIME ZONE            |
-/// | chrono::NaiveDate           | DATE                                |
-/// | chrono::NaiveTime           | TIME                                |
-/// | uuid::Uuid                  | UUID                                |
+/// | Rust type                           | Postgres type(s)                    |
+/// |-------------------------------------|-------------------------------------|
+/// | serialize::json::Json               | JSON, JSONB                         |
+/// | serde::json::Value                  | JSON, JSONB                         |
+/// | time::Timespec                      | TIMESTAMP, TIMESTAMP WITH TIME ZONE |
+/// | chrono::NaiveDateTime               | TIMESTAMP                           |
+/// | chrono::DateTime&lt;UTC&gt;         | TIMESTAMP WITH TIME ZONE            |
+/// | chrono::DateTime&lt;Local&gt;       | TIMESTAMP WITH TIME ZONE            |
+/// | chrono::DateTime&lt;FixedOffset&gt; | TIMESTAMP WITH TIME ZONE            |
+/// | chrono::NaiveDate                   | DATE                                |
+/// | chrono::NaiveTime                   | TIME                                |
+/// | uuid::Uuid                          | UUID                                |
 ///
 /// # Nullability
 ///
@@ -795,6 +813,25 @@ pub trait ToSql: fmt::Debug {
     fn to_sql_checked(&self, ty: &Type, out: &mut Write, ctx: &SessionInfo)
                       -> Result<IsNull>;
 }
+
+impl<'a, T> ToSql for &'a T where T: ToSql {
+    fn to_sql_checked(&self, ty: &Type, out: &mut Write, ctx: &SessionInfo)
+                      -> Result<IsNull> {
+        if !<&'a T as ToSql>::accepts(ty) {
+            return Err(Error::WrongType(ty.clone()));
+        }
+        self.to_sql(ty, out, ctx)
+    }
+
+
+    fn to_sql<W: Write + ?Sized>(&self, ty: &Type, out: &mut W, ctx: &SessionInfo) -> Result<IsNull> {
+        (*self).to_sql(ty, out, ctx)
+    }
+
+    fn accepts(ty: &Type) -> bool { T::accepts(ty) }
+}
+
+
 
 impl<T: ToSql> ToSql for Option<T> {
     to_sql_checked!();
